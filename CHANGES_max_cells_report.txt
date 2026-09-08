@@ -1,0 +1,124 @@
+PSEUDOGRN HARNESS CHANGE REPORT
+--max_cells cell-count cap for the MI-scoring stage
+=====================================================
+Date: 2026-09-08
+Files changed: sergio_prepare_data.py, run_density_experiment.py
+Commit: 421459a "Cap pooled cells (--max_cells) so PseudoGRN's MI stage
+        stays tractable"
+
+
+1. WHAT HAPPENED
+-----------------
+Running the real 9-run density sweep on Kaggle (400-gene / 37-TF SERGIO
+dataset), tier1_seed0 (the dense tier, all 15 replicates pooled = 40,500
+cells) got stuck in the mutual-information scoring stage:
+
+    QUEUEING TASKS | Computations of MI: 100%| 14763/14763
+    PROCESSING TASKS | Computations of MI: 9%| 1341/14763 [44:58<7:09:29]
+
+I.e. after ~45 minutes it had only finished 9% of the candidate edges,
+projecting to roughly 8+ hours for ONE run. With 9 runs in the sweep, the
+whole experiment was not going to finish in any reasonable Kaggle session
+or weekly compute budget.
+
+
+2. ROOT CAUSE
+-------------
+PseudoGRN's frozen pipeline (main.py -> PreprocessData.smooth() ->
+EstimateMI.cal_mi2()) has two properties that don't scale to SERGIO's
+pooled cell counts:
+
+  a) smooth() applies a sliding window (window_size=5, slide=1 by
+     default) over pseudotime-ordered cells. With slide=1, the number of
+     output "windows" is almost equal to the number of input cells
+     (N_cells - window_size + 1) -- it does NOT meaningfully reduce data
+     volume the way a bigger slide or a real downsampling step would.
+
+  b) cal_mi2() estimates mutual information per (TF, target) candidate
+     pair using a Mixed-KSG estimator (MI_Gao) that includes a
+     pure-Python for-loop over every window/sample, doing a KD-tree
+     ball-point query per iteration. This cost grows worse than linearly
+     with the number of windows, and it's paid once per candidate pair
+     (14,763 pairs for the 37-TF x 400-gene dataset).
+
+Put together: pooling all 15 replicates gives ~40,500 cells -> ~40,496
+windows -> ~14,763 pairs each scored over ~40k samples with a per-point
+Python loop. Measured directly from the stuck Kaggle run: ~2 seconds per
+candidate pair at that scale, i.e. ~8+ hours for tier 1 alone.
+
+This is a scale mismatch, not a bug in our data pipeline: PseudoGRN's
+own repo (README, main.py, bundled example data) was evidently
+built/tested against BEELINE-style datasets of ~2,000 cells. SERGIO's
+pooled replicate sets (8,100 - 40,500 cells across our three tiers) are
+4x to 20x larger than that.
+
+
+3. THE FIX
+----------
+Added a new --max_cells argument to sergio_prepare_data.py (default:
+3000), forwarded through run_density_experiment.py:
+
+  - DPT pseudotime is still computed over the FULL pooled cell set
+    first (all kept replicates), so the pseudotime ordering itself
+    isn't degraded by throwing away cells before estimating the
+    diffusion manifold.
+
+  - AFTER pseudotime is computed, the cells actually WRITTEN to
+    ExpressionData.csv / PseudoTime.csv (i.e. what PreprocessData.smooth
+    and cal_mi2 actually run on) are randomly subsampled down to
+    --max_cells, seeded by --seed for reproducibility.
+
+  - This cap is applied the same way regardless of which density tier
+    is running (--n_timepoints_keep), so all three tiers get the same
+    downstream compute budget. The experimental "density" variable
+    stays exactly what the proposal defines it as -- how many SERGIO
+    replicates were available -- not "how many cells fed the MI
+    estimator." Nothing about which replicates are pooled, or the
+    tier/seed selection mechanism, changed.
+
+  - prep_meta.json now records both n_cells_pooled_full (before the cap)
+    and n_cells_written (after it) for transparency.
+
+No changes were made to any frozen PseudoGRN scoring code (main.py,
+PreprocessData.py, psedoScore.py, mRMR.py, EstimateMI.py) -- this is a
+data-volume decision in our own harness script, upstream of the frozen
+pipeline, the same category of change as the density-tier subsampling
+that was already part of the experiment design.
+
+
+4. EXPECTED PERFORMANCE AFTER THE FIX
+--------------------------------------
+--max_cells 3000 was chosen from a direct timing of
+smooth()+cal_mi2()+MRMR2() at N=2996 windows, using a small 20-gene/6-TF
+synthetic stand-in dataset (no real SERGIO data was available in the
+environment this fix was built in), then scaled up to the real 400-gene/
+37-TF/14,763-pair problem using each stage's own measured per-gene /
+per-pair cost:
+
+    ~5 min  smooth()
+   ~10 min  cal_mi2()
+    ~3 min  MRMR2()
+   -------
+   ~20-25 min per (tier, seed) run, with --n_jobs 4
+   ~3-4 hours for the full 9-run sweep
+
+IMPORTANT: this is an estimate, not a verified real-data measurement --
+it was extrapolated, not timed directly on the 400-gene/37-TF dataset.
+If your first real run's actual timing comes in noticeably higher or
+lower than this, that's useful signal to raise or lower --max_cells
+accordingly (raise it if you have verified wall-clock budget to spare;
+lower it if a single run still takes too long).
+
+
+5. WHAT YOU NEED TO DO
+------------------------
+On Kaggle:
+  1. Stop the stuck run.
+  2. git pull (to get this fix).
+  3. Clear any partial output from the stuck run:
+       rm -rf data_tier1_seed0 PseudoGRN_results density_experiment_log.txt
+  4. Re-run the sweep as before -- --max_cells defaults to 3000
+     automatically, no new flag is required unless you want to override it:
+       python run_density_experiment.py \
+         --dataset_dir /kaggle/working/SERGIO/data_sets/De-noised_400G_9T_300cPerT_5_DS2 \
+         --n_jobs 4
