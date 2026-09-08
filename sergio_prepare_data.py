@@ -186,6 +186,39 @@ def main():
              "after this choice -- PseudoGRN never sees it. Arbitrary but "
              "deterministic; see module docstring.",
     )
+    ap.add_argument(
+        "--max_cells", type=int, default=3000,
+        help="Cap on pooled cells actually WRITTEN for PseudoGRN to consume "
+             "(DPT pseudotime is still computed over the full pooled pool "
+             "first, for manifold quality -- this only subsamples the "
+             "output). NEEDED because main.py's smooth() (window_size=5, "
+             "slide=1) barely reduces cell count into windows, and its "
+             "Mixed-KSG MI estimator (cal_mi2) has a pure-Python per-point "
+             "loop that scales worse than linearly in window count -- "
+             "measured on the real 400-gene/37-TF SERGIO dataset: ~2s per "
+             "candidate (TF, target) pair at N=40496 windows, i.e. "
+             "~8+ hours for ONE tier-1 run's 14763 pairs. PseudoGRN's own "
+             "repo was evidently built/tested at BEELINE scale (~2000 "
+             "cells), not SERGIO's pooled 8k-40k cells. 3000 was chosen from "
+             "a direct timing of smooth()+cal_mi2()+MRMR2() at N=2996 "
+             "windows (on a 20-gene/6-TF synthetic stand-in, not the real "
+             "dataset -- no real SERGIO data was available in the "
+             "environment this was built in), scaled to 400 genes/37 "
+             "TFs/14763 pairs by each stage's own measured per-gene / "
+             "per-pair cost: ~5 min smooth() + ~10 min cal_mi2() + ~3 min "
+             "MRMR2() with --n_jobs 4, roughly 20-25 min per (tier, seed) "
+             "run, ~3-4 hours for the full 9-run sweep. TREAT THIS AS AN "
+             "ESTIMATE, not a verified real-data number -- if your first "
+             "real run's timing differs noticeably, that's a signal to "
+             "raise or lower --max_cells accordingly. This is independent of "
+             "--n_timepoints_keep, so all three density tiers get the same "
+             "compute budget -- "
+             "the tier variable stays 'how many SERGIO replicates were "
+             "available', not 'how many cells fed the estimator'. Raise "
+             "this only if you have verified wall-clock budget for it; set "
+             "to 0 to disable capping entirely (not recommended above "
+             "~5000 pooled cells).",
+    )
     ap.add_argument("--out_dir", type=str, default="/kaggle/working/pseudogrn/data")
     args = ap.parse_args()
 
@@ -261,6 +294,21 @@ def main():
     print(f"Computed DPT pseudotime, root cell index={root_idx} "
           f"(bin {args.root_bin})")
 
+    # --- Cap cell count for compute tractability (see --max_cells help) ---
+    # Pseudotime was computed over the FULL pool above (manifold quality);
+    # this subsampling only affects what's written for PreprocessData.smooth
+    # + cal_mi2 to actually run on downstream. Seeded by --seed for
+    # reproducibility (same seed -> same subsample, distinct from -- and
+    # independent of -- the replicate-level tier subsampling seed use above).
+    n_full_pool = adata.n_obs
+    if args.max_cells and adata.n_obs > args.max_cells:
+        sub_rng = np.random.RandomState(args.seed)
+        keep_idx = np.sort(sub_rng.choice(adata.n_obs, size=args.max_cells, replace=False))
+        adata = adata[keep_idx].copy()
+        print(f"Capped pooled cells for compute tractability: "
+              f"{n_full_pool} -> {adata.n_obs} (--max_cells={args.max_cells}, "
+              f"seed={args.seed}); pseudotime was computed before this cap")
+
     # --- Write PseudoGRN-native input files --------------------------------
     expr_df = pd.DataFrame(
         adata.X, index=adata.obs_names, columns=adata.var_names,
@@ -305,7 +353,9 @@ def main():
         json.dump({
             "n_timepoints_kept": int(n_replicates_kept),
             "seed": args.seed,
-            "n_cells_pooled": int(X.shape[0]),
+            "n_cells_pooled_full": int(n_full_pool),
+            "n_cells_written": int(adata.n_obs),
+            "max_cells_cap": args.max_cells,
         }, f, indent=2)
     print(f"Wrote {meta_path}")
 

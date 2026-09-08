@@ -75,7 +75,7 @@ def log(msg: str, log_file: Path) -> None:
 
 
 def run_prepare(*, seed, n_timepoints_keep, out_dir, dataset_dir, n_bins,
-                 n_replicates, root_bin, dry_run, log_file):
+                 n_replicates, root_bin, max_cells, dry_run, log_file):
     cmd = [
         sys.executable, str(PREPARE_SCRIPT),
         "--dataset_dir", dataset_dir,
@@ -84,6 +84,7 @@ def run_prepare(*, seed, n_timepoints_keep, out_dir, dataset_dir, n_bins,
         "--n_timepoints_keep", str(n_timepoints_keep),
         "--seed", str(seed),
         "--root_bin", str(root_bin),
+        "--max_cells", str(max_cells),
         "--out_dir", str(out_dir),
     ]
     log(f"  [prepare] {' '.join(cmd)}", log_file)
@@ -127,6 +128,12 @@ def main():
     ap.add_argument("--root_bin", type=int, default=0,
                      help="Forwarded to sergio_prepare_data.py's DPT root "
                           "cell selection.")
+    ap.add_argument("--max_cells", type=int, default=3000,
+                     help="Forwarded to sergio_prepare_data.py's --max_cells "
+                          "-- caps pooled cells written for PseudoGRN to "
+                          "keep the Mixed-KSG MI stage tractable (see that "
+                          "script's --max_cells help for the measured "
+                          "timing this default is based on).")
     ap.add_argument("--window_size", type=int, default=5,
                      help="Forwarded to train_sergio.py -- PseudoGRN's own "
                           "main.py default.")
@@ -196,6 +203,7 @@ def main():
                 seed=seed, n_timepoints_keep=n_tp, out_dir=data_dir,
                 dataset_dir=args.dataset_dir, n_bins=args.n_bins,
                 n_replicates=args.n_replicates, root_bin=args.root_bin,
+                max_cells=args.max_cells,
                 dry_run=args.dry_run, log_file=log_file,
             )
             run_train(
