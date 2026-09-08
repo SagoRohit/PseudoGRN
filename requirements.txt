@@ -1,0 +1,22 @@
+# Isolated environment for pseudogrn/ (proposal Section 5.6: each model
+# runs in its own containerized/virtual environment). Versions pinned to
+# what this harness was built and smoke-tested against.
+#
+# PseudoGRN's own repo (Pseudo-network/) declares no requirements.txt or
+# pinned versions of its own -- these are the versions this harness's
+# compatibility patch in train_sergio.py (`_smooth_pandas_compat`, see its
+# docstring) was verified against. If you install an OLDER pandas (<2.0)
+# where Series.__getitem__ still falls back to positional indexing, the
+# patch is harmless (it's semantically identical either way) so there is
+# no need to relax this pin -- it's a floor set by this environment's
+# actual toolchain, not a requirement PseudoGRN imposes.
+pandas==3.0.5
+numpy==2.5.3
+scipy==1.18.1
+scikit-learn==1.9.0
+networkx==3.6.1
+matplotlib==3.11.1
+pqdm==0.2.0
+dcor==0.7
+scanpy==1.12.4
+anndata==0.13.3.post0
