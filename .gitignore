@@ -4,3 +4,4 @@ __pycache__/
 PseudoGRN_results/
 data_tier*_seed*/
 density_experiment_log.txt
+*.zip
