@@ -129,12 +129,15 @@ def main():
     ap.add_argument("--root_bin", type=int, default=0,
                      help="Forwarded to sergio_prepare_data.py's DPT root "
                           "cell selection.")
-    ap.add_argument("--max_cells", type=int, default=3000,
-                     help="Forwarded to sergio_prepare_data.py's --max_cells "
-                          "-- caps pooled cells written for PseudoGRN to "
-                          "keep the Mixed-KSG MI stage tractable (see that "
-                          "script's --max_cells help for the measured "
-                          "timing this default is based on).")
+    ap.add_argument("--max_cells", type=int, default=22000,
+                     help="Forwarded to sergio_prepare_data.py's --max_cells. "
+                          "CORRECTED from an earlier 3000 default that "
+                          "capped every tier down to the same size, "
+                          "destroying the density comparison (see "
+                          "PSEUDOGRN_RESULTS_ANALYSIS.md's Fix section) -- "
+                          "22000 only compresses Tier 1 (40,500 natural), "
+                          "leaving Tier 2/3 (13,500/8,100) at their full "
+                          "natural sizes.")
     ap.add_argument("--window_size", type=int, default=5,
                      help="Forwarded to train_sergio.py -- PseudoGRN's own "
                           "main.py default.")

@@ -181,3 +181,82 @@ place). Waiting on the user to run Task 1 on Kaggle and report back.
 
 ## STATUS: Tasks 1 (script ready), 2 (answered), 3 (confirmed + fixed)
 ## done. Tasks 4-6 blocked on real Task 1 timing data from Kaggle.
+
+---
+
+# Task 1 partial real data + user decision to stop investigating
+
+Ran `benchmark_max_cells_timing.py`'s first point on real Kaggle data
+(4 cores) before stopping: **pool_size=3000 -> smooth()=445.2s (7.4min),
+cal_mi2()=1451.6s (24.2min), MRMR2()=47.0s, TOTAL=1943.8s (32.4min).**
+Both smooth() and cal_mi2() came in considerably slower than the
+original synthetic-extrapolated estimate (~5min/~10min guessed vs.
+7.4min/24.2min real) -- confirms the original 3000 default's problem
+wasn't just "too small a cap," the underlying per-stage cost model it was
+based on was also an underestimate.
+
+Linear-scaling projection from this single real point (smooth: 0.1486
+s/window; cal_mi2: 0.4845 s/window aggregate at n_jobs=4; MRMR:
+0.0157 s/window) -- NOT verified beyond one data point, could be worse:
+
+| pool size | projected total | 
+|---|---|
+| 13,500 (Tier 2 natural) | ~2.43h |
+| 22,000 (chosen Tier 1 cap) | ~3.96h |
+| 40,500 (Tier 1 natural) | ~7.30h (matches the original stuck-run's own ~8h estimate) |
+
+**User decision: stop further timing investigation and the GPU path here
+(Task 2 already closed above; remaining Task 1 points and Task 4's own
+data-driven cap selection both skipped).** Proceeding directly with fixed
+caps instead:
+- **Tier 1: capped to 22,000** (`--max_cells 22000`, now the default in
+  both `sergio_prepare_data.py` and `run_density_experiment.py`).
+- **Tier 2 and Tier 3: uncapped at natural size** (13,500 / 8,100) --
+  automatic consequence of `min(natural, cap)` with cap=22,000, no
+  special-casing needed (verified again numerically: 22000/13500/8100).
+- **Single seed (0) per tier, 3 runs total** -- not the full 9-run sweep,
+  per explicit user instruction, given the projected per-run cost above.
+
+## Task 3 (parallelization) re-confirmed: nothing to add
+
+Already fixed earlier in this file's Fix section (`--n_jobs` now
+defaults to `os.cpu_count()`, already the frozen library's own pqdm-based
+parallelization, not new code). User asked to add it "if trivial, skip if
+it adds complexity" -- it was already done before this message, so
+nothing further was needed.
+
+## Task 5 validation gate: script written, not yet run (gated on Kaggle)
+
+Wrote `check_cell_counts.py` -- reads `n_cells_pooled_full`/
+`n_cells_written` back from each of the 3 runs' `prep_meta.json` and
+`n_cells_pooled` from `metrics.json`, prints a direct side-by-side table,
+and explicitly checks (not just assumes): (a) all 3 `n_cells_written`
+values are distinct, (b) they're correctly ordered Tier1 > Tier2 > Tier3,
+(c) `prep_meta.json` and `metrics.json` agree on the written count. This
+is exactly the check that would have caught the original bug (every tier
+silently capped to 3000) before a full sweep, not after.
+
+Verified (`py_compile` + a plain arithmetic check of the min(natural,cap)
+logic, no data touched): with cap=22000, the three tiers resolve to
+22000/13500/8100 -- confirmed distinct and correctly ordered.
+
+## STATUS: all code/doc changes done, nothing executed. 3 launch commands
+## below -- run in order, report back the timings and check_cell_counts.py's
+## output (or just its PASS/FAIL lines) before this gets marked verified.
+
+## LAUNCH COMMANDS (Kaggle, in order)
+
+```
+# 1. Run the corrected 3-run sweep (single seed, --max_cells now defaults
+#    to 22000 and --n_jobs to the detected core count -- shown explicitly
+#    for clarity):
+!python3 run_density_experiment.py --n_seeds 1 --max_cells 22000
+
+# 2. Task 5 validation gate -- confirm the fix actually worked before
+#    trusting any of the 3 runs' AUPRC/AUROC numbers:
+!python3 check_cell_counts.py
+```
+
+Expected `check_cell_counts.py` output: three distinct `n_cells_written`
+values (22000/13500/8100) with both PASS lines printed. If either FAILs,
+stop and report back rather than treating the numbers as trustworthy.
