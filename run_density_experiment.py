@@ -45,6 +45,7 @@ printed and appended to --log_file (default density_experiment_log.txt),
 so progress survives a Kaggle session getting cut off mid-sweep.
 """
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -143,9 +144,14 @@ def main():
     ap.add_argument("--mrmr_lambda", type=float, default=1.0,
                      help="Forwarded to train_sergio.py -- PseudoGRN's own "
                           "mRMR.py default.")
-    ap.add_argument("--n_jobs", type=int, default=1,
-                     help="Forwarded to train_sergio.py's --n_jobs "
-                          "(pqdm parallelism for cal_mi2/MRMR2).")
+    ap.add_argument("--n_jobs", type=int, default=os.cpu_count() or 1,
+                     help="Forwarded to train_sergio.py's --n_jobs (pqdm "
+                          "parallelism for cal_mi2/MRMR2, already the "
+                          "frozen library's own parallelization mechanism, "
+                          "not something built here) -- now defaults to "
+                          "the actual detected core count instead of a "
+                          "hardcoded guess, per "
+                          "pseudogrn_fix_and_reanalyze_prompt.md Task 3.")
     ap.add_argument("--n_seeds", type=int, default=N_SEEDS)
     ap.add_argument("--data_root", type=str, default=".",
                      help="Where per-(tier,seed) data_tier<N>_seed<S>/ dirs "

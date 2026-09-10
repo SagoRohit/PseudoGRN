@@ -56,6 +56,7 @@ python train_sergio.py \
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -208,11 +209,19 @@ def main():
     ap.add_argument("--slide", type=int, default=1,
                      help="Sliding-window step for smooth(). PseudoGRN's "
                           "own main.py default.")
-    ap.add_argument("--n_jobs", type=int, default=1,
-                     help="Parallel workers for cal_mi2/MRMR2 (pqdm). "
-                          "PseudoGRN's own main.py default is 1; raise this "
-                          "on a multi-core Kaggle instance for speed, it "
-                          "does not change results.")
+    ap.add_argument("--n_jobs", type=int, default=os.cpu_count() or 1,
+                     help="Parallel workers for cal_mi2/MRMR2 (pqdm) -- "
+                          "ALREADY the frozen library's own CPU "
+                          "parallelization mechanism across the 14,763 "
+                          "independent candidate pairs (see psedoScore.py's "
+                          "cal_mi2/MRMR2, both call pqdm(..., n_jobs=n_jobs)) "
+                          "-- nothing new built here, just defaulted to the "
+                          "actual detected core count (os.cpu_count()) "
+                          "instead of a hardcoded guess, per "
+                          "pseudogrn_fix_and_reanalyze_prompt.md Task 3 "
+                          "('using the actual core count of the Kaggle "
+                          "instance you'll run on'). Does not change "
+                          "results, only wall-clock time.")
     ap.add_argument("--mrmr_lambda", type=float, default=1.0,
                      help="mRMR redundancy-penalty weight. PseudoGRN's own "
                           "mRMR.py default (both MRMR() and MRMR2() default "
